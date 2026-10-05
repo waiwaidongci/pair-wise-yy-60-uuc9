@@ -40,6 +40,7 @@ import {
   DashboardOutlined,
   FactCheckOutlined,
   FindInPageOutlined,
+  HistoryToggleOffOutlined,
   MenuOutlined,
   MoreHorizOutlined,
   NotificationsNoneOutlined,
@@ -49,10 +50,11 @@ import {
 } from '@mui/icons-material';
 import { fetchEvidence } from '@/lib/api';
 import { useCarbonStore } from '@/lib/store';
+import MethodologyView from '@/components/MethodologyView';
 
 const drawerWidth = 232;
 
-type View = 'overview' | 'verify' | 'issuance';
+type View = 'overview' | 'verify' | 'issuance' | 'methodology';
 
 export default function EvidenceWorkbench({ initialView }: { initialView: View }) {
   const [view] = useState<View>(initialView);
@@ -72,6 +74,7 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
   const nav = [
     { id: 'overview', label: '监测期总览', href: '/', icon: DashboardOutlined },
     { id: 'verify', label: '证据与抽样核验', href: '/verify', icon: FindInPageOutlined },
+    { id: 'methodology', label: '方法学换版', href: '/methodology', icon: HistoryToggleOffOutlined },
     { id: 'issuance', label: '签发准备', href: '/issuance', icon: AssessmentOutlined }
   ];
 
@@ -127,8 +130,8 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
           <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} mb={2.4}>
             <Box>
               <Typography variant="overline" color="text.secondary" fontWeight={750}>CN-ER-2026-041 / {data?.summary.period ?? '第三监测期'}</Typography>
-              <Typography variant="h5" fontWeight={850} mt={.3}>{view === 'overview' ? '监测期总览' : view === 'verify' ? '证据与抽样核验' : '签发准备'}</Typography>
-              <Typography variant="body2" color="text.secondary" mt={.5}>{view === 'overview' ? '汇总活动数据、排放因子、证据完整度和异常波动。' : view === 'verify' ? '逐项核对来源、单位、时间范围，并保留修订链。' : '关闭发现项并完成签发前完整性门禁。'}</Typography>
+              <Typography variant="h5" fontWeight={850} mt={.3}>{view === 'overview' ? '监测期总览' : view === 'verify' ? '证据与抽样核验' : view === 'methodology' ? '方法学换版与追溯' : '签发准备'}</Typography>
+              <Typography variant="body2" color="text.secondary" mt={.5}>{view === 'overview' ? '汇总活动数据、排放因子、证据完整度和异常波动。' : view === 'verify' ? '逐项核对来源、单位、时间范围，并保留修订链。' : view === 'methodology' ? '按发生日期保留原因子与计算依据，换版确认带批次版本，签发只接收完整批次。' : '关闭发现项并完成签发前完整性门禁。'}</Typography>
             </Box>
             <Stack direction="row" spacing={1}>
               <Button variant="outlined" startIcon={<CloudUploadOutlined />}>导入监测数据</Button>
@@ -161,7 +164,7 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                       </Box>
                       {visibleRecords.map((record) => (
                         <Box key={record.id} role="button" tabIndex={0} onClick={() => store.selectRecord(record.id)} sx={{ display: 'grid', gridTemplateColumns: '1.7fr .9fr .8fr 1fr .7fr .7fr', gap: 1, px: 1.7, py: 1.25, borderTop: '1px solid #e8ecea', cursor: 'pointer', bgcolor: selected.id === record.id ? '#eff7f3' : 'white', '&:hover': { bgcolor: '#f6faf8' } }}>
-                          <Box><Typography fontSize={12.5} fontWeight={700}>{record.source}</Typography><Typography fontSize={10} color="text.secondary">{record.id} · {record.owner} · V{record.revision}</Typography></Box>
+                          <Box><Typography fontSize={12.5} fontWeight={700}>{record.source}</Typography><Typography fontSize={10} color="text.secondary">{record.id} · {record.owner} · V{record.revision} · {record.occurredOn} · {record.methodologyVersion || '待回填版本'}</Typography></Box>
                           <Box><Typography fontSize={12}>{record.activity.toLocaleString()} {record.unit}</Typography><Typography fontSize={10} color={record.anomaly > 5 ? 'secondary.main' : 'text.secondary'}>异常 {record.anomaly > 0 ? '+' : ''}{record.anomaly}%</Typography></Box>
                           <Typography fontSize={12}>{record.factor} <small>{record.factorUnit}</small></Typography>
                           <Typography fontSize={11}>{record.timeRange}</Typography>
@@ -177,6 +180,7 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                     <Box>活动数据 = {selected.activity.toLocaleString()} {selected.unit}</Box>
                     <Box mt={.6}>排放因子 = {selected.factor} {selected.factorUnit}</Box>
                     <Box mt={.6}>换算系数 = 0.001</Box>
+                    <Box mt={.6}>方法学版本 = {selected.methodologyVersion || '待回填'}（{selected.occurredOn} 发生）</Box>
                     <Divider sx={{ my: 1 }} />
                     <Box sx={{ color: '#14644f', fontWeight: 800 }}>减排量 = {(selected.activity * selected.factor / 1000).toFixed(2)} tCO₂e</Box>
                   </Box><Stack direction="row" spacing={1} mt={1.5}><Button size="small" variant="outlined" onClick={() => { setCorrectionOpen(true); setCorrectionValue(String(selected.activity)); }}>修订数据</Button><Button size="small">查看证据</Button></Stack></CardContent></Card>
@@ -232,6 +236,8 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
               </Stack>
             </Box>
           )}
+
+          {view === 'methodology' && (<MethodologyView />)}
         </Box>
       </Box>
 
