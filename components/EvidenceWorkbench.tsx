@@ -45,14 +45,16 @@ import {
   NotificationsNoneOutlined,
   RuleOutlined,
   ScienceOutlined,
-  TaskAltOutlined
+  TaskAltOutlined,
+  WarningAmberOutlined
 } from '@mui/icons-material';
 import { fetchEvidence } from '@/lib/api';
 import { useCarbonStore } from '@/lib/store';
+import MethodologyConsole from './MethodologyConsole';
 
 const drawerWidth = 232;
 
-type View = 'overview' | 'verify' | 'issuance';
+type View = 'overview' | 'methodology' | 'verify' | 'issuance';
 
 export default function EvidenceWorkbench({ initialView }: { initialView: View }) {
   const [view] = useState<View>(initialView);
@@ -67,10 +69,13 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
   const visibleRecords = useMemo(() => recordFilter === '全部' ? store.records : store.records.filter((record) => record.status === recordFilter), [recordFilter, store.records]);
   const totalReduction = store.records.reduce((total, record) => total + record.activity * record.factor / (record.unit === 'kWh' ? 1000 : record.unit === 'L' ? 1000 : 1), 0);
   const openFindings = store.findings.filter((item) => item.status !== '已关闭');
-  const allIssuanceChecked = Object.values(store.issuanceChecks).every(Boolean) && openFindings.length === 0;
+  const completeBatches = store.issuanceBatches.filter((batch) => batch.complete);
+  const batchesReady = completeBatches.length === store.issuanceBatches.length;
+  const allIssuanceChecked = batchesReady && Object.values(store.issuanceChecks).every(Boolean) && openFindings.length === 0;
 
   const nav = [
     { id: 'overview', label: '监测期总览', href: '/', icon: DashboardOutlined },
+    { id: 'methodology', label: '方法学换版', href: '/methodology', icon: AccountTreeOutlined },
     { id: 'verify', label: '证据与抽样核验', href: '/verify', icon: FindInPageOutlined },
     { id: 'issuance', label: '签发准备', href: '/issuance', icon: AssessmentOutlined }
   ];
@@ -127,15 +132,17 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
           <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} mb={2.4}>
             <Box>
               <Typography variant="overline" color="text.secondary" fontWeight={750}>CN-ER-2026-041 / {data?.summary.period ?? '第三监测期'}</Typography>
-              <Typography variant="h5" fontWeight={850} mt={.3}>{view === 'overview' ? '监测期总览' : view === 'verify' ? '证据与抽样核验' : '签发准备'}</Typography>
-              <Typography variant="body2" color="text.secondary" mt={.5}>{view === 'overview' ? '汇总活动数据、排放因子、证据完整度和异常波动。' : view === 'verify' ? '逐项核对来源、单位、时间范围，并保留修订链。' : '关闭发现项并完成签发前完整性门禁。'}</Typography>
+              <Typography variant="h5" fontWeight={850} mt={.3}>{view === 'overview' ? '监测期总览' : view === 'methodology' ? '方法学期中换版' : view === 'verify' ? '证据与抽样核验' : '签发准备'}</Typography>
+              <Typography variant="body2" color="text.secondary" mt={.5}>{view === 'overview' ? '汇总活动数据、排放因子、证据完整度和异常波动。' : view === 'methodology' ? '按发生日期追溯因子版本，完成批次确认、失败恢复与旧数据回填。' : view === 'verify' ? '逐项核对来源、单位、时间范围，并保留修订链。' : '关闭发现项并完成签发前完整性门禁。'}</Typography>
             </Box>
             <Stack direction="row" spacing={1}>
-              <Button variant="outlined" startIcon={<CloudUploadOutlined />}>导入监测数据</Button>
+              {view !== 'methodology' && <Button variant="outlined" startIcon={<CloudUploadOutlined />}>导入监测数据</Button>}
               <Button variant="contained" startIcon={<TaskAltOutlined />} disabled={view !== 'issuance' || !allIssuanceChecked}>提交签发准备</Button>
             </Stack>
           </Stack>
-          {isLoading && <LinearProgress />}
+          {isLoading && view !== 'methodology' && <LinearProgress />}
+
+          {view === 'methodology' && <MethodologyConsole />}
 
           {view === 'overview' && (
             <>
@@ -156,15 +163,20 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                   <Divider />
                   <Box sx={{ overflowX: 'auto' }}>
                     <Box sx={{ minWidth: 840 }}>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1.7fr .9fr .8fr 1fr .7fr .7fr', gap: 1, px: 1.7, py: 1, bgcolor: '#f7f9f8', color: 'text.secondary', fontSize: 11, fontWeight: 750 }}>
-                        <span>数据来源</span><span>活动数据</span><span>排放因子</span><span>时间范围</span><span>证据</span><span>状态</span>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1.7fr .9fr .8fr 1fr .7fr .9fr', gap: 1, px: 1.7, py: 1, bgcolor: '#f7f9f8', color: 'text.secondary', fontSize: 11, fontWeight: 750 }}>
+                        <span>数据来源</span><span>活动数据</span><span>排放因子 / 版本</span><span>发生日期 · 时间范围</span><span>证据</span><span>状态</span>
                       </Box>
                       {visibleRecords.map((record) => (
-                        <Box key={record.id} role="button" tabIndex={0} onClick={() => store.selectRecord(record.id)} sx={{ display: 'grid', gridTemplateColumns: '1.7fr .9fr .8fr 1fr .7fr .7fr', gap: 1, px: 1.7, py: 1.25, borderTop: '1px solid #e8ecea', cursor: 'pointer', bgcolor: selected.id === record.id ? '#eff7f3' : 'white', '&:hover': { bgcolor: '#f6faf8' } }}>
-                          <Box><Typography fontSize={12.5} fontWeight={700}>{record.source}</Typography><Typography fontSize={10} color="text.secondary">{record.id} · {record.owner} · V{record.revision}</Typography></Box>
+                        <Box key={record.id} role="button" tabIndex={0} onClick={() => store.selectRecord(record.id)} sx={{ display: 'grid', gridTemplateColumns: '1.7fr .9fr .8fr 1fr .7fr .9fr', gap: 1, px: 1.7, py: 1.25, borderTop: '1px solid #e8ecea', cursor: 'pointer', bgcolor: selected.id === record.id ? '#eff7f3' : 'white', '&:hover': { bgcolor: '#f6faf8' } }}>
+                          <Box><Typography fontSize={12.5} fontWeight={700}>{record.source}</Typography><Typography fontSize={10} color="text.secondary">{record.id} · {record.owner} · V{record.revision}{record.batchId === 'B-2026-Q2' ? ' · 历史批次' : ''}</Typography></Box>
                           <Box><Typography fontSize={12}>{record.activity.toLocaleString()} {record.unit}</Typography><Typography fontSize={10} color={record.anomaly > 5 ? 'secondary.main' : 'text.secondary'}>异常 {record.anomaly > 0 ? '+' : ''}{record.anomaly}%</Typography></Box>
-                          <Typography fontSize={12}>{record.factor} <small>{record.factorUnit}</small></Typography>
-                          <Typography fontSize={11}>{record.timeRange}</Typography>
+                          <Box>
+                            <Typography fontSize={12}>{record.factor} <small>{record.factorUnit}</small></Typography>
+                            {record.methodologyVersion
+                              ? <Chip size="small" sx={{ mt: .2, height: 18, fontSize: 9.5 }} label={record.methodologyVersion} color={record.methodologyVersion === 'CMS-052-V02' ? 'primary' : 'default'} variant={record.methodologyVersion === 'CMS-052-V02' ? 'filled' : 'outlined'} />
+                              : <Chip size="small" sx={{ mt: .2, height: 18, fontSize: 9.5 }} label="版本缺失待回填" color="warning" variant="outlined" />}
+                          </Box>
+                          <Box><Typography fontSize={11}>{record.occurredOn}</Typography><Typography fontSize={10} color="text.secondary">{record.timeRange}</Typography></Box>
                           <Typography fontSize={12}>{record.evidenceCount} 项</Typography>
                           <Chip size="small" label={record.status} color={record.status === '已核验' ? 'success' : record.status === '需补证' ? 'warning' : 'default'} variant={record.status === '已核验' ? 'filled' : 'outlined'} />
                         </Box>
@@ -174,12 +186,15 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                 </Card>
                 <Stack spacing={1.5}>
                   <Card elevation={0} variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography fontWeight={800} fontSize={14}>计算链展开</Typography><Chip size="small" label={selected.id} /></Stack><Box sx={{ mt: 1.5, p: 1.3, bgcolor: '#f4f7f5', fontFamily: 'monospace', borderRadius: 1, fontSize: 11 }}>
-                    <Box>活动数据 = {selected.activity.toLocaleString()} {selected.unit}</Box>
+                    <Box>发生日期 = {selected.occurredOn}（{selected.occurredOn >= '2026-07-16' ? '换版日后 → 新版' : '换版日前 → 保留首版'}）</Box>
+                    <Box mt={.6}>活动数据 = {selected.activity.toLocaleString()} {selected.unit}</Box>
                     <Box mt={.6}>排放因子 = {selected.factor} {selected.factorUnit}</Box>
+                    <Box mt={.6}>方法学版本 = {selected.methodologyVersion ?? '缺失，待回填首版'}（按发生日期追溯）</Box>
+                    <Box mt={.6} sx={{ fontFamily: 'inherit', wordBreak: 'break-all' }}>计算依据 = {selected.factorBasis}</Box>
                     <Box mt={.6}>换算系数 = 0.001</Box>
                     <Divider sx={{ my: 1 }} />
                     <Box sx={{ color: '#14644f', fontWeight: 800 }}>减排量 = {(selected.activity * selected.factor / 1000).toFixed(2)} tCO₂e</Box>
-                  </Box><Stack direction="row" spacing={1} mt={1.5}><Button size="small" variant="outlined" onClick={() => { setCorrectionOpen(true); setCorrectionValue(String(selected.activity)); }}>修订数据</Button><Button size="small">查看证据</Button></Stack></CardContent></Card>
+                  </Box><Stack direction="row" spacing={1} mt={1.5}><Button size="small" variant="outlined" onClick={() => { setCorrectionOpen(true); setCorrectionValue(String(selected.activity)); }}>修订数据</Button><Button size="small" component={Link} href="/methodology">前往换版确认</Button></Stack></CardContent></Card>
                   <Card elevation={0} variant="outlined"><CardContent><Typography fontWeight={800} fontSize={14} mb={1.2}>核验发现项</Typography>{openFindings.slice(0, 3).map((finding) => <Box key={finding.id} sx={{ py: 1, borderTop: '1px solid #edf0ef' }}><Stack direction="row" spacing={1}><Alert severity={finding.status === '补证中' ? 'warning' : 'error'} sx={{ p: .2, '& .MuiAlert-icon': { mr: .3, fontSize: 17 } }} /><Box><Typography fontSize={12} fontWeight={700}>{finding.title}</Typography><Typography fontSize={10} color="text.secondary" mt={.3}>{finding.assignee} · {finding.due}</Typography></Box></Stack></Box>)}</CardContent></Card>
                 </Stack>
               </Box>
@@ -193,6 +208,9 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                   <Box><Typography fontWeight={800} fontSize={14}>证据矩阵与抽样任务</Typography><Typography fontSize={11} color="text.secondary">已抽取 {store.sampledIds.length} 条高价值记录</Typography></Box>
                   <Stack direction="row" spacing={1}><Button variant="outlined" onClick={() => useCarbonStore.setState((state) => ({ sampledIds: store.records.filter((item) => Math.abs(item.anomaly) > 5).map((item) => item.id) }))}>按异常抽样</Button><Button variant="contained" onClick={store.batchVerify}>批量核验</Button></Stack>
                 </Stack><Divider />
+                <Alert severity="info" icon={<AccountTreeOutlined fontSize="small" />} sx={{ m: 1.2, py: .3, '& .MuiAlert-message': { fontSize: 11.5 } }}>
+                  方法学 07-16 换版：因子按<b>发生日期</b>追溯——换版日前记录保留 V01 原因子与计算依据，新到现场数据走 V02；历史批次缺版本的记录回填首版后需复核。
+                </Alert>
                 {store.records.map((record) => (
                   <Box key={record.id} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '22px minmax(210px, 1.3fr) .8fr .8fr .8fr auto' }, alignItems: 'center', gap: 1.2, px: 1.6, py: 1.3, borderTop: '1px solid #edf0ef' }}>
                     <input type="checkbox" checked={store.sampledIds.includes(record.id)} onChange={() => store.toggleSample(record.id)} aria-label={`抽样 ${record.id}`} />
@@ -213,7 +231,28 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
 
           {view === 'issuance' && (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 380px' }, gap: 1.5 }}>
+              <Stack spacing={1.5}>
               <Card elevation={0} variant="outlined">
+                <CardContent>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Box><Typography fontWeight={800} fontSize={14}>批次完整性门禁</Typography><Typography fontSize={11} color="text.secondary">签发准备只接收完整批次：现场数据齐备且换版确认成立。</Typography></Box>
+                    <Button size="small" component={Link} href="/methodology">去换版确认</Button>
+                  </Stack>
+                  {store.issuanceBatches.map((batch) => (
+                    <Box key={batch.batchId} sx={{ display: 'flex', gap: 1.2, alignItems: 'flex-start', borderTop: '1px solid #edf0ef', py: 1.3 }}>
+                      {batch.complete
+                        ? <CheckCircleOutlined color="success" sx={{ fontSize: 19, mt: .1 }} />
+                        : <WarningAmberOutlined color="warning" sx={{ fontSize: 19, mt: .1 }} />}
+                      <Box>
+                        <Typography fontSize={12.5} fontWeight={700}>{batch.label} <Chip size="small" sx={{ ml: .5, height: 18, fontSize: 9.5 }} label={batch.complete ? '完整批次 · 可签发' : '不完整 · 拒收'} color={batch.complete ? 'success' : 'warning'} variant={batch.complete ? 'filled' : 'outlined'} /></Typography>
+                        <Typography fontSize={10.5} color="text.secondary" mt={.3}>{batch.reason}</Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                  {!batchesReady && <Alert severity="error" sx={{ mt: 1 }} icon={<WarningAmberOutlined fontSize="inherit" />}><Typography fontSize={11.5}>存在不完整批次，签发准备已拦截；请先在「方法学换版」完成回填复核与批次确认。</Typography></Alert>}
+                </CardContent>
+              </Card>
+              <Card elevation={0} variant="outlined" sx={{ opacity: batchesReady ? 1 : .55 }}>
                 <CardContent>
                   <Typography fontWeight={800} fontSize={14}>签发前完整性检查</Typography>
                   <Typography fontSize={11} color="text.secondary" mb={1.5}>所有门禁项必须确认，开放发现项必须关闭。</Typography>
@@ -222,11 +261,12 @@ export default function EvidenceWorkbench({ initialView }: { initialView: View }
                     { id: 'calculation', title: '计算过程复核通过', detail: '单位和换算系数一致，关键公式由核验员确认。' },
                     { id: 'revisions', title: '历史修订未覆盖原始数据', detail: '所有数据均有版本号和修订原因。' },
                     { id: 'methodology', title: '方法学与监测计划匹配', detail: `项目采用 ${data?.project.methodology ?? 'CMS-052-V01'}。` }
-                  ].map((item) => <Box key={item.id} component="label" sx={{ display: 'flex', gap: 1.3, alignItems: 'flex-start', borderTop: '1px solid #edf0ef', py: 1.5, cursor: 'pointer' }}><input type="checkbox" checked={store.issuanceChecks[item.id]} onChange={() => store.toggleIssuanceCheck(item.id)} /><Box><Typography fontSize={12.5} fontWeight={700}>{item.title}</Typography><Typography fontSize={10.5} color="text.secondary" mt={.4}>{item.detail}</Typography></Box></Box>)}
+                  ].map((item) => <Box key={item.id} component="label" sx={{ display: 'flex', gap: 1.3, alignItems: 'flex-start', borderTop: '1px solid #edf0ef', py: 1.5, cursor: 'pointer' }}><input type="checkbox" checked={store.issuanceChecks[item.id]} disabled={!batchesReady} onChange={() => store.toggleIssuanceCheck(item.id)} /><Box><Typography fontSize={12.5} fontWeight={700}>{item.title}</Typography><Typography fontSize={10.5} color="text.secondary" mt={.4}>{item.detail}</Typography></Box></Box>)}
                 </CardContent>
               </Card>
+              </Stack>
               <Stack spacing={1.5}>
-                <Card elevation={0} variant="outlined"><CardContent><Typography fontWeight={800} fontSize={14}>签发就绪度</Typography><Stack direction="row" alignItems="baseline" spacing={1} mt={1}><Typography variant="h4" fontWeight={850}>{Math.round(Object.values(store.issuanceChecks).filter(Boolean).length / 4 * 70 + (openFindings.length === 0 ? 30 : 0))}%</Typography><Typography fontSize={11} color="text.secondary">完成度</Typography></Stack><LinearProgress variant="determinate" value={Object.values(store.issuanceChecks).filter(Boolean).length / 4 * 100} sx={{ height: 7, borderRadius: 3, mt: 1 }} /><Typography fontSize={11} color="text.secondary" mt={1.2}>还有 {openFindings.length} 个开放发现项。</Typography></CardContent></Card>
+                <Card elevation={0} variant="outlined"><CardContent><Typography fontWeight={800} fontSize={14}>签发就绪度</Typography><Stack direction="row" alignItems="baseline" spacing={1} mt={1}><Typography variant="h4" fontWeight={850}>{Math.round((batchesReady ? 25 : completeBatches.length / store.issuanceBatches.length * 25) + Object.values(store.issuanceChecks).filter(Boolean).length / 4 * 50 + (openFindings.length === 0 && batchesReady ? 25 : 0))}%</Typography><Typography fontSize={11} color="text.secondary">完成度</Typography></Stack><LinearProgress variant="determinate" value={(batchesReady ? 25 : completeBatches.length / store.issuanceBatches.length * 25) + Object.values(store.issuanceChecks).filter(Boolean).length / 4 * 50 + (openFindings.length === 0 && batchesReady ? 25 : 0)} sx={{ height: 7, borderRadius: 3, mt: 1 }} /><Typography fontSize={11} color="text.secondary" mt={1.2}>{completeBatches.length}/{store.issuanceBatches.length} 个完整批次 · {openFindings.length} 个开放发现项。</Typography></CardContent></Card>
                 <Card elevation={0} variant="outlined"><CardContent><Stack direction="row" justifyContent="space-between"><Typography fontWeight={800} fontSize={14}>版本与核验意见</Typography><IconButton size="small"><MoreHorizOutlined /></IconButton></Stack>{[['V4', '韩跃', '修订柴油活动数据并补充测试运行说明'], ['V3', '沈楠', '要求补充流量计校准证据'], ['V2', '徐璐', '统一电量单位并附原始记录']].map((item) => <Stack key={item[0]} direction="row" spacing={1.2} sx={{ borderTop: '1px solid #edf0ef', py: 1.2 }}><Chip size="small" label={item[0]} /><Box><Typography fontSize={11.5} fontWeight={700}>{item[1]}</Typography><Typography fontSize={10.5} color="text.secondary">{item[2]}</Typography></Box></Stack>)}</CardContent></Card>
                 <Alert severity={allIssuanceChecked ? 'success' : 'warning'}>{allIssuanceChecked ? '全部门禁已完成，可提交签发准备。' : '关闭开放发现项并完成所有检查后可提交。'}</Alert>
               </Stack>
